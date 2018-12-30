@@ -2,21 +2,30 @@ import numpy as np
 import torch
 import torch.tensor as tensor
 import torch.distributions as distributions
-
+from control import TrajectoryController
 
 class MPC():
 
-    def __init__(self, env, model, predict_horizon=20, warmup_trials=1, learning_trials=20, trial_horizon=1000):
+    def __init__(self, env, model, trainer, predict_horizon=20, warmup_trials=1, learning_trials=20, trial_horizon=1000, render=False):
         self.env = env
         self.model = model
+        self.trainer = trainer
         self.predict_horizon=predict_horizon
         self.warmup_trials = warmup_trials
         self.learning_trials=learning_trials
         self.trial_horizon = trial_horizon
-        self.memory
+        self.render = render
+        self.memory = np.array([])
         self.action_space_dim = env.action_space.shape[0]
-
         self.action_space_uniform = distributions.uniform.Uniform(tensor(env.action_space.low), tensor(env.action_space.high))
+        self.state = env.reset()
+
+    def _expected_reward(self, state, action_trajectory):
+        reward = 0
+        for action in action_trajectory:
+            state, next_reward = self.model(state, action)
+            reward += next_reward
+        return reward
 
     def _trial(self, controller, horizon=0):
         # horizon=0 means infinite horizon
@@ -24,7 +33,9 @@ class MPC():
         samples = []
         t = 0
         while(True):
-            action = controller(obs)
+            if self.render:
+                self.env.render()
+            action = controller(torch.tensor(obs))
             next_obs, reward, done, _ = self.env.step(action)
             samples.append((obs, action, reward, next_obs, done))
             t += 1
@@ -38,7 +49,9 @@ class MPC():
         actions_in = torch.from_numpy(np.vstack(self.memory[:,1]))
         targets = torch.from_numpy(np.vstack(self.memory[:,3]))
         inputs = torch.cat(states_in, actions_in, dim=1)
-        self.model.train(inputs, targets)
+
+        self.trainer.train(inputs, targets)
+
 
     def _random_controller(self, obs, n=1):
         if n <=0:
@@ -57,7 +70,5 @@ class MPC():
 
         for k in range(self.learning_trials):
             self._train_model()
-            self._trial(self._trajectory_controller, self.trial_horizon)
-
-
+            self._trial(TrajectoryController(self.model, self.action_space_dim, self.predict_horizon, self.predict_horizon, self._expected_reward), self.trial_horizon)
 
