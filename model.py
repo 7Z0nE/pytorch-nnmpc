@@ -25,11 +25,27 @@ class NN(nn.Module):
         # batchnorm module for each hidden layer
         self.norm = nn.ModuleList([nn.BatchNorm1d(dim) for dim in layers[1:-1]])
 
-    def forward(self, input):
+    def forward(self, x):
         for layer, norm, activation in zip(self.layers[:-1], self.norm, self.activations):
             x = activation(norm(layer(x)))
         x = self.layers[-1](x)
         return x
+
+
+class EnvironmentModel(NN):
+
+    def __init__(self, state_dim, action_dim, hidden_layers, activations, batch_norm=True):
+        layers = [state_dim+action_dim]+hidden_layers+[state_dim+1] #+1 for reward
+        super(EnvironmentModel, self).__init__(layers, activations)
+
+    def propagate(self, state, action):
+        input = torch.cat((state, action), dim=1) # use negative dim so we can input batches aswell as single values
+        output = self.forward(input)
+        output = torch.squeeze(output)
+        if output.dim() == 1:
+            return output[:-1], output[-1]
+        else:
+            return output[:,:-1], output[:,-1]
 
 
 class ProbabilisticEnvironmentModel(NN):
@@ -46,11 +62,12 @@ class ProbabilisticEnvironmentModel(NN):
         # batchnorm module for each hidden layer
         self.norm = nn.ModuleList([nn.BatchNorm1d(dim) for dim in layers[1:-1]])
 
-    def forward(self, state, action):
+    def propagate(self, state, action):
         torch.unsqueeze(state)
         torch.unsqueeze(action)
         input = torch.cat(state, action, dim=-2) # use negative dim so we can input batches aswell as single values
-        output = torch.squeeze(super.forward(input))
+        output = super.forward(input)
+        output = torch.squeeze(output)
         if output.dim() == 1:
             return output[:-1], output[-1]
         else:
@@ -82,7 +99,10 @@ class ModelTrainer:
         self.model.train()
 
         for batch_in, batch_t in zip(torch.chunk(inputs, self.batch_size), torch.chunk(targets, self.batch_size)):
-            loss = self.lossFunc(self.model(batch_in), batch_t)
+            if len(batch_in) < 2:
+                continue
+            batch_pred = self.model(batch_in)
+            loss = self.lossFunc(batch_pred.float(), batch_t.float())
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()

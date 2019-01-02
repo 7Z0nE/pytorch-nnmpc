@@ -38,35 +38,38 @@ class TrajectoryController():
         self.history = FIFOBuffer(self.history_len)
         self.cost_func = cost_function
 
-    def next_action(self, obs,):
+    def next_action(self, obs):
 
-        past_trajectory = torch.stack(self.history.get())
-        missing = self.history_len - len(past_trajectory)
-        if missing > 0:
-            torch.cat((past_trajectory, torch.zeros(missing, self.action_dim)))
+        history = self.history.get()
+        missing = self.history_len - len(history)
+        if missing == self.history_len:
+            past_trajectory = torch.zeros(missing, self.action_dim)
+        elif missing > 0:
+            past_trajectory = torch.cat((torch.stack(self.history.get()), torch.zeros(missing, self.action_dim)))
+        else:
+            past_trajectory = torch.stack(self.history.get())
 
-        best_trajtectory = self._cem_optimize(past_trajectory, torch.var(past_trajectory))
+        best_trajtectory = self._cem_optimize(past_trajectory, torch.var(past_trajectory, dim=0))
         best_action = best_trajtectory[0]
 
         self.history.push(best_action)
         return best_action
 
-    def _cem_optimize(self, init_mean, init_variance=torch.tensor([1.]), precision=1.0e-3, steps=20, nelite=5):
+    def _cem_optimize(self, init_mean, init_variance, precision=1.0e-3, steps=20, nelite=5, contraint_mean=(-999999,999999), constraint_variance=(-999999,999999)):
         mean = init_mean
-        d = len(init_mean) > len(init_variance)
-        variance = torch.cat((init_variance, torch.ones_like(d))) if d > 0 else init_variance
+        variance = torch.ones(len(mean), self.action_dim)
         step = 1
-        diff = 1000
-        while diff > precision and step < steps:
-            dists = [distributions.MultivariateNormal(mean, var) for mean, var in zip(mean, variance)]
+        diff = torch.tensor([1000])
+        while torch.sum(diff > precision) == len(diff) and step < steps:
+            dists = [distributions.MultivariateNormal(mean, torch.diagflat(var)) for mean, var in zip(mean, variance)]
             candidates = torch.stack([d.sample_n(self.trajectory_len) + mean for d in dists], dim=0)
             costs = self.cost_func(candidates)
             # we sort descending because we want a maximum reward
-            sorted_idx = torch.argsort(self.cost_func(costs), dim=0, descending=True)
+            sorted_idx = torch.argsort(costs, dim=0, descending=True)
             candidates = candidates[sorted_idx]
             elite = candidates[:nelite]
-            new_mean = elite.mean()
-            variance = elite.variance()
+            new_mean = torch.mean(elite, dim=0)
+            variance = torch.var(elite, dim=0)
             diff = torch.abs(mean - new_mean)
             mean = new_mean
             step += 1
