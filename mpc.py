@@ -55,7 +55,7 @@ class MPC():
                 break
             obs = next_obs
             self.state = next_obs
-        if self.memory == None:
+        if self.memory is None:
             self.memory = np.array(samples)
         else:
             self.memory = np.vstack((self.memory, np.array(samples)))
@@ -81,8 +81,7 @@ class MPC():
 
     def _trajectory_controller(self, obs):
         if self.trajectory_controller == None:
-            self.trajectory_controller = TrajectoryController(self.model, self.action_space_dim, self.predict_horizon, self.predict_horizon,
-                             self._expected_reward)
+            self.trajectory_controller = TrajectoryController(self.model, self.action_space_dim, self.env.action_space.low, self.env.action_space.high, self.predict_horizon, self.predict_horizon, self._expected_reward)
         self.trajectory_controller.cost_func = self._expected_reward
         return self.trajectory_controller.next_action(obs)
 

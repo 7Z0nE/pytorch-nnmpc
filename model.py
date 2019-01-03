@@ -3,6 +3,24 @@ import torch.nn as nn
 import numpy.random
 
 
+class Swish(torch.nn.Module):
+    r"""Applies the element-wise function:
+    .. math::
+        \text{Swish}(x) = x * text{Sigmoid}(x) = x * \frac{1}{1 + \exp(-x)}
+    Shape:
+        - Input: :math:`(N, *)` where `*` means, any number of additional
+          dimensions
+        - Output: :math:`(N, *)`, same shape as the input
+    Examples::
+        >>> m = Swish()
+        >>> input = torch.randn(2)
+        >>> output = m(input)
+    """
+
+    def forward(self, input):
+        return input * torch.sigmoid(input)
+
+
 class NegLogLikelihood(nn.Module):
     @staticmethod
     def forward(output, target):
@@ -16,9 +34,9 @@ class NN(nn.Module):
 
     def __init__(self, layers, activations, batch_norm=True):
         super(NN, self).__init__()
-        self.layers = nn.ModuleList([nn.Linear(dim_in, dim_out) for dim_in, dim_out in zip(layers[:-1],layers[1:])])
+        self.layers = nn.ModuleList([nn.Linear(dim_in, dim_out) for dim_in, dim_out in zip(layers[:-1], layers[1:])])
         #standard activation function for each hidden layer
-        self.activations = [nn.ReLU()]*(len(layers)-2)
+        self.activations = [Swish()]*(len(layers)-2)
         # override with array of passed in activation functions
         for i in range(len(activations)):
             self.activations[i] = activations[i]

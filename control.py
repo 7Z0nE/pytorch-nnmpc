@@ -20,9 +20,13 @@ class FIFOBuffer():
         self.buffer.clear()
 
 
+def clip(x, min, max):
+    return torch.max(torch.min(x, max), min)
+
+
 class TrajectoryController():
 
-    def __init__(self, model, action_dim, trajectory_len, history_len, cost_function):
+    def __init__(self, model, action_dim, action_min, action_max, trajectory_len, history_len, cost_function):
         """
         A TrajectoryController finds the next best action by evaluating a trajectory of future actions.
         Future actions are evaluated using a model.
@@ -33,6 +37,8 @@ class TrajectoryController():
         :param cost_function: function (currentState, trajectory) -> expected reward that gives the cost for a trajectory
         """
         self.action_dim = action_dim
+        self.action_min = action_min
+        self.action_max = action_max
         self.trajectory_len = trajectory_len
         self.history_len = history_len
         self.history = FIFOBuffer(self.history_len)
@@ -49,18 +55,18 @@ class TrajectoryController():
         else:
             past_trajectory = torch.stack(self.history.get())
 
-        best_trajtectory = self._cem_optimize(past_trajectory, torch.var(past_trajectory, dim=0))
+        best_trajtectory = self._cem_optimize(past_trajectory, torch.var(past_trajectory, dim=0), contraint_mean=[self.action_min, self.action_max])
         best_action = best_trajtectory[0]
 
         self.history.push(best_action)
         return best_action
 
-    def _cem_optimize(self, init_mean, init_variance, precision=1.0e-3, steps=20, nelite=5, contraint_mean=(-999999,999999), constraint_variance=(-999999,999999)):
+    def _cem_optimize(self, init_mean, init_variance, precision=1.0e-3, steps=20, nelite=5, contraint_mean=None, constraint_variance=(-999999,999999)):
         mean = init_mean
         variance = torch.ones(len(mean), self.action_dim)
         step = 1
-        diff = torch.tensor([1000])
-        while torch.sum(diff > precision) == len(diff) and step < steps:
+        diff = 9999999
+        while diff > precision and step < steps:
             dists = [distributions.MultivariateNormal(mean, torch.diagflat(var)) for mean, var in zip(mean, variance)]
             candidates = torch.stack([d.sample_n(self.trajectory_len) + mean for d in dists], dim=0)
             costs = self.cost_func(candidates)
@@ -70,8 +76,10 @@ class TrajectoryController():
             elite = candidates[:nelite]
             new_mean = torch.mean(elite, dim=0)
             variance = torch.var(elite, dim=0)
-            diff = torch.abs(mean - new_mean)
-            mean = new_mean
+            diff = torch.mean(torch.abs(mean - new_mean))
+            mean = torch.mean(elite, dim=0)
+            if not contraint_mean is None:
+                mean = clip(mean, contraint_mean[0], contraint_mean[1])
             step += 1
 
         return mean
