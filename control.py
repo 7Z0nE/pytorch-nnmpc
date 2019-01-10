@@ -2,10 +2,27 @@ import torch
 import torch.distributions as distributions
 
 
-def cem_optimize(init_mean, cost_func, shape, init_variance=1., samples=20, precision=1.0e-3, steps=20, nelite=5, contraint_mean=None,
+def cem_optimize(init_mean, cost_func, init_variance=1., samples=20, precision=1.0e-3, steps=20, nelite=5, contraint_mean=None,
                   constraint_variance=(-999999, 999999)):
+    """
+    cem_optimize minimizes cost_function by iteratively sampling values around the current mean with a set variance.
+    Of the sampled values the mean of the nelite number of samples with the lowest cost is the new mean for the next iteration.
+    Convergence is met when either the change of the mean during the last iteration is less then precision.
+    Or when the maximum number of steps was taken.
+    :param init_mean: initial mean to sample new values around
+    :param cost_func: varience used for sampling
+    :param init_variance: initial variance
+    :param samples: number of samples to take around the mean. Ratio of samples to elites is important.
+    :param precision: if the change of mean after an iteration is less than precision convergence is met
+    :param steps: number of steps
+    :param nelite: number of best samples whose mean will be the mean for the next iteration
+    :param contraint_mean: tuple with minimum and maximum mean
+    :param constraint_variance: tuple with minumum and maximum variance
+    :return:
+    """
     mean = init_mean
-    variance = torch.tensor([init_variance]).repeat(shape)
+    variance = torch.tensor([init_variance]).repeat(mean.shape).float()
+    # print(mean.type(), variance.type())
     step = 1
     diff = 9999999
     while diff > precision and step < steps:
@@ -21,7 +38,7 @@ def cem_optimize(init_mean, cost_func, shape, init_variance=1., samples=20, prec
         variance = torch.var(elite, dim=0)
         diff = torch.mean(torch.abs(mean - new_mean))
         mean = new_mean
-        print(mean, variance)
+        # print(mean, variance)
         if not contraint_mean is None:
             mean = clip(mean, contraint_mean[0], contraint_mean[1])
         step += 1
@@ -87,9 +104,8 @@ class TrajectoryController():
             # initialize trajectory
             self.trajectory = torch.zeros(self.trajectory_shape)
         # find a trajectory that optimizes the cummulative reward
-        self.trajectory = cem_optimize(self.trajectory, self.cost_func, self.trajectory_shape, contraint_mean=[self.action_min, self.action_max], )
+        self.trajectory = cem_optimize(self.trajectory, self.cost_func, contraint_mean=[self.action_min, self.action_max], )
         best_action = self.trajectory[0]
 
         # self.history.push(best_action)
         return best_action
-

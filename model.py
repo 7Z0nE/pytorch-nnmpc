@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import numpy.random
 
 
 class Swish(torch.nn.Module):
@@ -31,6 +30,9 @@ class NegLogLikelihood(nn.Module):
 
 
 class NN(nn.Module):
+    """
+    A plain neural network.
+    """
 
     def __init__(self, layers, activations, batch_norm=True):
         super(NN, self).__init__()
@@ -51,6 +53,9 @@ class NN(nn.Module):
 
 
 class EnvironmentModel(NN):
+    """
+    A neural network parameterized to model an OpenAI Gym environment.
+    """
 
     def __init__(self, state_dim, action_dim, hidden_layers, activations, batch_norm=True):
         layers = [state_dim+action_dim]+hidden_layers+[state_dim+1] #+1 for reward
@@ -67,6 +72,10 @@ class EnvironmentModel(NN):
 
 
 class ProbabilisticEnvironmentModel(NN):
+    """
+    A neural network parameterized to model an OpenAI Gym environemnt.
+    Also outputs the diagonal covariance of the prediction.
+    """
 
     def __init__(self, state_dim, action_dim, hidden_layers, activations, batch_norm=True):
         super(ProbabilisticEnvironmentModel, self).__init__()
@@ -93,17 +102,39 @@ class ProbabilisticEnvironmentModel(NN):
 
 
 class Ensemble():
+    """
+    Multiple models combined into an ensemble.
+    The input is propagated with each model.
+    """
 
     def __init__self(self, models):
+        """
+        :param models: the models of the ensemble
+        """
         self.models = nn.ModuleList(models)
 
     def forward(self, x):
+        """
+        :param x: input to the models
+        :return: outputs of all models
+        """
         return [m(x) for m in self.models]
 
 
 class ModelTrainer:
+    """
+    ModelTrainer optimized the parameters of a model.
+    """
 
     def __init__(self, model, lossFunc=NegLogLikelihood, optimizer=torch.optim.Adam, lr=1e-3, lr_decay=1., batch_size=32):
+        """
+        :param model: the model to optimize
+        :param lossFunc: the loss function that should be minimized
+        :param optimizer: a function/constructor that returns a torch.optim optimizer
+        :param lr: learn rate for the optimizer
+        :param lr_decay: learn rate decay for the optimizer
+        :param batch_size: the number of data points to evaluate the model on before changing parameters
+        """
         self.model = model
         self.lossFunc = lossFunc
         self.optimizer = optimizer(lr=lr, params=self.model.parameters())
@@ -114,6 +145,11 @@ class ModelTrainer:
             self.scheduler = None
 
     def train(self, inputs, targets):
+        """
+        train updates the parameters of the model to minimize the loss function on inputs and targets
+        :param inputs: the training inputs
+        :param targets: the training targets
+        """
         self.model.train()
 
         for batch_in, batch_t in zip(torch.chunk(inputs, self.batch_size), torch.chunk(targets, self.batch_size)):
@@ -129,11 +165,29 @@ class ModelTrainer:
 
 
 class EnsembleTrainer:
+    """
+    EnsembleTrainer is composed of multiple trainers, one for each model in the ensemble.
+    """
 
     def __init__(self, ensemble, lossFunc=NegLogLikelihood, optimizer=torch.optim.Adam, lr=1e-3, lr_decay=1., batch_size=32):
+        """
+        :param model: the model to optimize
+        :param lossFunc: the loss function that should be minimized
+        :param optimizer: a function/constructor that returns a torch.optim optimizer
+        :param lr: learn rate for the optimizer
+        :param lr_decay: learn rate decay for the optimizer
+        :param batch_size: the number of data points to evaluate the model on before changing parameters
+        """
         self.trainers = [ModelTrainer(model, lossFunc, optimizer, lr, lr_decay, batch_size) for model in ensemble.models]
 
     def train(self, inputs, targets, n=0):
+        """
+        trains all models of the ensemble with the given inputs and targets.
+        The individual models might be trained with different subsets of the data.
+        :param inputs: the input data
+        :param targets: target data
+        :param n: unused
+        """
         for trainer in self.trainers:
             samples = randint(len(inputs), size=len(inputs))
             trainer.train(inputs[samples], targets[samples])
