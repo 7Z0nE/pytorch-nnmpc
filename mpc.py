@@ -18,20 +18,27 @@ class MPC():
         self.memory = None
         self.trajectory_controller = None
         self.action_space_dim = env.action_space.shape[0]
-        self.action_space_uniform = distributions.uniform.Uniform(tensor(env.action_space.low), tensor(env.action_space.high))
+        self.action_space_min = torch.from_numpy(self.env.action_space.low)
+        self.action_space_max = torch.from_numpy(self.env.action_space.high)
+        self.action_space_uniform = distributions.uniform.Uniform(self.action_space_min, self.action_space_max)
         self.state = env.reset()
 
     def _expected_reward(self, action_trajectory):
+        """
+        :param action_trajectory: 2D tensor of actions(a trajectory) or 3D tensor of trajectories
+        :return: the expected reward or a tensor of expected rewards
+        """
         traj_shape = action_trajectory.shape
-        if len(traj_shape) > 2:
-            self.model.train()
-            state = torch.from_numpy(np.vstack([self.state]*traj_shape[0])).float() # traj_shape[0] is the number of trajectoies
-        else:
-            self.model.eval()
-            state = torch.from_numpy(self.state)
         reward = 0
-        for action in action_trajectory:
-            state, next_reward = self.model.propagate(state, action)
+        state = torch.from_numpy(self.state)
+
+        # check whether the input is a batch of trajectories
+        if len(traj_shape) > 2:
+            state = state.repeat(len(action_trajectory), 1)
+            action_trajectory = torch.transpose(action_trajectory, 0, 1) #makes iterating over it easy, as we have the n-th action of each trajectory in the same row
+
+        for action in action_trajectory: #unsqueeze needed so action is not 0-dim
+            state, next_reward = self.model.propagate(state.float(), action)
             reward += next_reward
         return reward
 
@@ -81,7 +88,7 @@ class MPC():
 
     def _trajectory_controller(self, obs):
         if self.trajectory_controller == None:
-            self.trajectory_controller = TrajectoryController(self.model, self.action_space_dim, self.env.action_space.low, self.env.action_space.high, self.predict_horizon, self.predict_horizon, self._expected_reward)
+            self.trajectory_controller = TrajectoryController(self.model, self.action_space_dim, self.action_space_min, self.action_space_max, self.predict_horizon, self.predict_horizon, self._expected_reward)
         self.trajectory_controller.cost_func = self._expected_reward
         return self.trajectory_controller.next_action(obs)
 

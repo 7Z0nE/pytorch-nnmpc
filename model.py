@@ -57,7 +57,7 @@ class EnvironmentModel(NN):
         super(EnvironmentModel, self).__init__(layers, activations)
 
     def propagate(self, state, action):
-        input = torch.cat((state, action), dim=1) # use negative dim so we can input batches aswell as single values
+        input = torch.cat((state, action), dim=-1) # use negative dim so we can input batches aswell as single values
         output = self.forward(input)
         output = torch.squeeze(output)
         if output.dim() == 1:
