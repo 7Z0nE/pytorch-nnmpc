@@ -13,7 +13,7 @@ class MPC:
     first action of the best trajectory. After each trial, the model is trained using the new data.
     """
 
-    def __init__(self, env, model, trainer, predict_horizon=20, warmup_trials=1, learning_trials=20, trial_horizon=1000, render=False):
+    def __init__(self, env, model, trainer, predict_horizon=20, warmup_trials=1, learning_trials=20, trial_horizon=1000, render=0):
         """
         Creates a Model Predictive Controller
         :param env: an OpenAI Gym environment
@@ -23,7 +23,7 @@ class MPC:
         :param warmup_trials: the number of trials with random controller before starting to use trajectory planning
         :param learning_trials: the number of trials to keep explorating. Afterwards, the controller will exploit.
         :param trial_horizon: the maximum amount of steps per trial
-        :param render: when set True the environment will be rendered
+        :param render: modulus for the trials to render. 0 means no render
         """
         self.env = env
         self.model = model
@@ -62,19 +62,22 @@ class MPC:
             reward += next_reward
         return reward
 
-    def _trial(self, controller, horizon=0):
+    def _trial(self, controller, horizon=0, render=False):
         """
         Runs a trial on the environment. Renders the environment if self.render is True.
         :param controller: provides the next action to take
         :param horizon: the maximum steps to take. 0 means infinite steps.
+        :param render: whether to render the current trial
+        :return: cummulative reward
         """
         # horizon=0 means infinite horizon
         obs = self.env.reset()
         self.state = obs
         samples = []
+        cum_reward = 0
         t = 0
         while(True):
-            if self.render:
+            if render:
                 self.env.render()
             action = controller(torch.tensor(obs))
             # print(action)
@@ -82,6 +85,7 @@ class MPC:
             # print(action)
             next_obs, reward, done, _ = self.env.step(action)
             samples.append((obs, action, reward, next_obs, done))
+            cum_reward += reward
             t += 1
             if done or horizon > 0 and t == horizon:
                 break
@@ -91,6 +95,8 @@ class MPC:
             self.memory = np.array(samples)
         else:
             self.memory = np.vstack((self.memory, np.array(samples)))
+
+        return cum_reward
 
     def _train_model(self):
         """
@@ -146,6 +152,7 @@ class MPC:
 
         for k in range(self.learning_trials):
             print("Learning trial #", k)
-            self._trial(self._trajectory_controller, self.trial_horizon)
+            rewrad = self._trial(self._trajectory_controller, self.trial_horizon, self.render > 0 and k % self.render == 0)
+            print("Reward: ", rewrad)
             print("Training after trial #", k)
             self._train_model()

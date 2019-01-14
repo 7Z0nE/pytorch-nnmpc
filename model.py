@@ -126,7 +126,7 @@ class ModelTrainer:
     ModelTrainer optimized the parameters of a model.
     """
 
-    def __init__(self, model, lossFunc=NegLogLikelihood, optimizer=torch.optim.Adam, lr=1e-3, lr_decay=1., batch_size=32):
+    def __init__(self, model, lossFunc=NegLogLikelihood, optimizer=torch.optim.Adam, lr=1e-3, lr_decay=1., batch_size=32, epochs=1):
         """
         :param model: the model to optimize
         :param lossFunc: the loss function that should be minimized
@@ -134,11 +134,13 @@ class ModelTrainer:
         :param lr: learn rate for the optimizer
         :param lr_decay: learn rate decay for the optimizer
         :param batch_size: the number of data points to evaluate the model on before changing parameters
+        :param epochs: how often the model is trained with the same data
         """
         self.model = model
         self.lossFunc = lossFunc
         self.optimizer = optimizer(lr=lr, params=self.model.parameters())
         self.batch_size = batch_size
+        self.epochs = epochs
         if lr_decay == 1.:
             self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=lr_decay)
         else:
@@ -147,21 +149,24 @@ class ModelTrainer:
     def train(self, inputs, targets):
         """
         train updates the parameters of the model to minimize the loss function on inputs and targets
+        the train data is shuffled for each epoch.
         :param inputs: the training inputs
         :param targets: the training targets
         """
         self.model.train()
 
-        for batch_in, batch_t in zip(torch.chunk(inputs, self.batch_size), torch.chunk(targets, self.batch_size)):
-            if len(batch_in) < 2:
-                continue
-            batch_pred = self.model(batch_in)
-            loss = self.lossFunc(batch_pred.float(), batch_t.float())
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            if not self.scheduler == None:
-                self.scheduler.step()
+        for e in range(self.epochs):
+            permutation = torch.randperm(len(inputs))
+            for batch_in, batch_t in zip(torch.chunk(inputs[permutation], self.batch_size), torch.chunk(targets[permutation], self.batch_size)):
+                if len(batch_in) < 2:
+                    continue
+                batch_pred = self.model(batch_in)
+                loss = self.lossFunc(batch_pred.float(), batch_t.float())
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+                if not self.scheduler == None:
+                    self.scheduler.step()
 
 
 class EnsembleTrainer:
