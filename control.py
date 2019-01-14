@@ -2,8 +2,8 @@ import torch
 import torch.distributions as distributions
 
 
-def cem_optimize(init_mean, cost_func, init_variance=1., samples=20, precision=1.0e-3, steps=20, nelite=5, contraint_mean=None,
-                  constraint_variance=(-999999, 999999)):
+def cem_optimize(init_mean, cost_func, init_variance=1., samples=20, precision=1.0e-3,
+                 steps=20, nelite=5, contraint_mean=None, constraint_variance=(-999999, 999999), device="cpu"):
     """
     cem_optimize minimizes cost_function by iteratively sampling values around the current mean with a set variance.
     Of the sampled values the mean of the nelite number of samples with the lowest cost is the new mean for the next iteration.
@@ -21,12 +21,12 @@ def cem_optimize(init_mean, cost_func, init_variance=1., samples=20, precision=1
     :return:
     """
     mean = init_mean
-    variance = torch.tensor([init_variance]).repeat(mean.shape).float()
+    variance = torch.tensor([init_variance], device=device).repeat(mean.shape).float()
     # print(mean.type(), variance.type())
     step = 1
     diff = 9999999
     while diff > precision and step < steps:
-        dists = [distributions.MultivariateNormal(mean, torch.diagflat(var+precision/10)) for mean, var in zip(mean, variance)]
+        dists = [distributions.MultivariateNormal(m, torch.diagflat(v+precision/10), device=device) for m, v in zip(mean, variance)]
         candidates = [d.sample_n(samples) for d in dists]
         candidates = torch.stack(candidates, dim=1)
         costs = cost_func(candidates)
@@ -70,7 +70,7 @@ def clip(x, min, max):
 
 class TrajectoryController():
 
-    def __init__(self, model, action_dim, action_min, action_max, trajectory_len, history_len, cost_function):
+    def __init__(self, model, action_dim, action_min, action_max, trajectory_len, history_len, cost_function, device):
         """
         A TrajectoryController finds the next best action by evaluating a trajectory of future actions.
         Future actions are evaluated using a model.
@@ -89,6 +89,7 @@ class TrajectoryController():
         self.history = FIFOBuffer(self.history_len)
         self.cost_func = cost_function
         self.trajectory = None
+        self.device = device
 
     def next_action(self, obs):
         #
@@ -102,9 +103,9 @@ class TrajectoryController():
         #     past_trajectory = torch.stack(self.history.get())
         if self.trajectory is None:
             # initialize trajectory
-            self.trajectory = torch.zeros(self.trajectory_shape)
+            self.trajectory = torch.zeros(self.trajectory_shape, device=self.device)
         # find a trajectory that optimizes the cummulative reward
-        self.trajectory = cem_optimize(self.trajectory, self.cost_func, contraint_mean=[self.action_min, self.action_max], )
+        self.trajectory = cem_optimize(self.trajectory, self.cost_func, contraint_mean=[self.action_min, self.action_max], device=self.device)
         best_action = self.trajectory[0]
 
         # self.history.push(best_action)

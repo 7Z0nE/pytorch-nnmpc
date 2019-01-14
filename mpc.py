@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.distributions as distributions
+from diagnose import ModelEval
 from control import TrajectoryController
 
 
@@ -13,7 +14,7 @@ class MPC:
     first action of the best trajectory. After each trial, the model is trained using the new data.
     """
 
-    def __init__(self, env, model, trainer, predict_horizon=20, warmup_trials=1, learning_trials=20, trial_horizon=1000, render=0):
+    def __init__(self, env, model, trainer, predict_horizon=20, warmup_trials=1, learning_trials=20, trial_horizon=1000, render=0, device="cpu"):
         """
         Creates a Model Predictive Controller
         :param env: an OpenAI Gym environment
@@ -33,13 +34,15 @@ class MPC:
         self.learning_trials=learning_trials
         self.trial_horizon = trial_horizon
         self.render = render
+        self.device = device
         self.memory = None
         self.trajectory_controller = None
         self.action_space_dim = env.action_space.shape[0]
-        self.action_space_min = torch.from_numpy(self.env.action_space.low)
-        self.action_space_max = torch.from_numpy(self.env.action_space.high)
-        self.action_space_uniform = distributions.uniform.Uniform(self.action_space_min, self.action_space_max)
+        self.action_space_min = torch.from_numpy(self.env.action_space.low, device=device)
+        self.action_space_max = torch.from_numpy(self.env.action_space.high, device=device)
+        self.action_space_uniform = distributions.uniform.Uniform(self.action_space_min, self.action_space_max, device=device)
         self.state = env.reset()
+        self.diagnose_model = ModelEval(self, self.env)
 
     def _expected_reward(self, action_trajectory):
         """
@@ -50,7 +53,7 @@ class MPC:
         """
         traj_shape = action_trajectory.shape
         reward = 0
-        state = torch.from_numpy(self.state)
+        state = torch.from_numpy(self.state, device=self.device)
 
         # check whether the input is a batch of trajectories
         if len(traj_shape) > 2:
@@ -79,7 +82,7 @@ class MPC:
         while(True):
             if render:
                 self.env.render()
-            action = controller(torch.tensor(obs))
+            action = controller(torch.tensor(obs, device=self.device))
             # print(action)
             action = action.detach().numpy()
             # print(action)
@@ -103,10 +106,10 @@ class MPC:
         Trains the model with data from self.memory and self.trainer.
         Transforms the numpy arrays from the environment to torch tensors.
         """
-        states_in = torch.from_numpy(np.vstack(self.memory[:,0]))
-        actions_in = torch.from_numpy(np.vstack(self.memory[:,1]))
-        states_out = torch.from_numpy(np.vstack(self.memory[:,3]))
-        rewards_out = torch.from_numpy(np.vstack(self.memory[:,2]))
+        states_in = torch.from_numpy(np.vstack(self.memory[:, 0]), device=self.device)
+        actions_in = torch.from_numpy(np.vstack(self.memory[:, 1]), device=self.device)
+        states_out = torch.from_numpy(np.vstack(self.memory[:, 3]), device=self.device)
+        rewards_out = torch.from_numpy(np.vstack(self.memory[:, 2]), device=self.device)
         inputs = torch.cat((states_in.float(), actions_in.float()), dim=1)
         targets = torch.cat((states_out.float(), rewards_out.float()), dim=1)
 
@@ -135,11 +138,13 @@ class MPC:
         :return: the next action ot take
         """
         if self.trajectory_controller == None:
-            self.trajectory_controller = TrajectoryController(self.model, self.action_space_dim, self.action_space_min, self.action_space_max, self.predict_horizon, self.predict_horizon, self._expected_reward)
+            self.trajectory_controller = TrajectoryController(self.model, self.action_space_dim, self.action_space_min,
+                                                              self.action_space_max, self.predict_horizon,
+                                                              self.predict_horizon, self._expected_reward, self.device)
         self.trajectory_controller.cost_func = self._expected_reward
         return self.trajectory_controller.next_action(obs)
 
-    def train(self):
+    def train(self, diagnose=False):
         """
         Starts the reinforcement learning algorithm on the environment.
         """
@@ -155,4 +160,6 @@ class MPC:
             rewrad = self._trial(self._trajectory_controller, self.trial_horizon, self.render > 0 and k % self.render == 0)
             print("Reward: ", rewrad)
             print("Training after trial #", k)
+            if diagnose:
+                self.diagnose_model.eval()
             self._train_model()

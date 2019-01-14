@@ -52,6 +52,32 @@ class NN(nn.Module):
         return x
 
 
+class EnvironmentModelSeparateReward(nn.Module):
+
+    def __init__(self, state_dim, action_dim, hidden_layers, activations, batch_norm=True):
+        super(EnvironmentModelSeparateReward, self).__init__()
+        layers_dynamics = [state_dim+action_dim]+hidden_layers+[state_dim]
+        layers_reward = [state_dim+action_dim]+hidden_layers+[1]
+        self.model_dynamics = NN(layers_dynamics, activations, batch_norm)
+        self.model_reward = NN(layers_reward, activations, batch_norm)
+
+    def forward(self, x, catreward=True):
+        x = torch.squeeze(x)
+        if catreward:
+            return torch.cat((self.model_dynamics(x), self.model_reward(x)), dim=-1)
+        else:
+            return (self.model_dynamics(x), self.model_reward(x))
+
+
+    def propagate(self, state, action):
+        input = torch.cat((state, action), dim=-1) # use negative dim so we can input batches aswell as single values
+        output = self.forward(input)
+        output = torch.squeeze(output)
+        if output.dim() == 1:
+            return output[:-1], output[-1]
+        else:
+            return output[:,:-1], output[:,-1]
+
 class EnvironmentModel(NN):
     """
     A neural network parameterized to model an OpenAI Gym environment.
