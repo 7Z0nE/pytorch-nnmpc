@@ -4,3 +4,4 @@ The code aims to reproduce the results of the paper [Deep Reinforcement Learning
 
 This was part of the TU Darmstadt class Application of Reinforcement Learning Algorithms taught by Jan Peters.
 
+You are in desperate need for a KiTa-Platz in germany? [Kita.Kids](https://kita.kids) is there to help!
